@@ -16,8 +16,7 @@ const SCAN_FORMATS = [
  Html5QrcodeSupportedFormats.CODE_128,
 ];
 
-let mode = "single"; // "single" | "pair"
-let pairStep = "old"; // "old" | "new"
+let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
 let pendingDecoded = null; // {raw, ebom, traceability}
 let html5Qrcode = null;
@@ -56,7 +55,7 @@ function focusManualInput() {
  $("manual-input").focus();
 }
 
-// ---- Mode / pair-progress ----
+// ---- Pair progress ----
 
 function resetPairSession() {
  pairStep = "old";
@@ -70,22 +69,6 @@ function updatePairProgressUI() {
   el.classList.toggle("done", pairStep === "new" && el.dataset.step === "old");
  });
 }
-
-function currentLabelVersion() {
- if (mode === "pair") return pairStep;
- return document.querySelector('input[name="label-version"]:checked').value;
-}
-
-document.querySelectorAll(".mode-btn").forEach(btn => {
- btn.addEventListener("click", () => {
-  mode = btn.dataset.mode;
-  document.querySelectorAll(".mode-btn").forEach(b => b.classList.toggle("active", b === btn));
-  $("pair-progress").hidden = mode !== "pair";
-  $("version-picker").style.display = mode === "pair" ? "none" : "";
-  if (mode === "pair") resetPairSession();
-  focusManualInput();
- });
-});
 
 // ---- Camera ----
 
@@ -205,9 +188,15 @@ function showPreview(raw) {
  const { ebom, traceability } = parseCode(raw);
  pendingDecoded = { raw, ebom, traceability };
  $("preview-raw").textContent = raw;
- $("preview-fields").innerHTML = ebom
+ // The new label format is unknown, so this can only catch one direction:
+ // an old-format code showing up on the "new label" step, which usually
+ // means the same label got scanned twice in a row.
+ const mismatchWarning = pairStep === "new" && ebom
+  ? `<div class="msg err">This matches the OLD label format, but you're on the "New label" step &mdash; check you didn't scan the old label again.</div>`
+  : "";
+ $("preview-fields").innerHTML = mismatchWarning + (ebom
   ? `<div><span class="field-label">EBOM</span>${esc(ebom)}</div><div><span class="field-label">Traceability</span>${esc(traceability)}</div>`
-  : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`;
+  : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`);
  $("preview").hidden = false;
 }
 
@@ -219,11 +208,9 @@ $("btn-rescan").addEventListener("click", () => {
 
 $("btn-save").addEventListener("click", async () => {
  if (!pendingDecoded) return;
- const labelVersion = currentLabelVersion();
- const correlationId = mode === "pair" ? pairCorrelationId : crypto.randomUUID();
  const row = {
-  correlation_id: correlationId,
-  label_version: labelVersion,
+  correlation_id: pairCorrelationId,
+  label_version: pairStep,
   raw_code: pendingDecoded.raw,
   ebom: pendingDecoded.ebom,
   traceability: pendingDecoded.traceability,
@@ -240,10 +227,10 @@ $("btn-save").addEventListener("click", async () => {
  showSavedToast(data);
  loadHistory($("search-input").value.trim());
 
- if (mode === "pair" && pairStep === "old") {
+ if (pairStep === "old") {
   pairStep = "new";
   updatePairProgressUI();
- } else if (mode === "pair" && pairStep === "new") {
+ } else {
   resetPairSession();
  }
  focusManualInput();
@@ -257,6 +244,13 @@ function showSavedToast(row) {
  $("btn-undo").addEventListener("click", async () => {
   await sbClient.from("label_scans").delete().eq("id", row.id);
   toast.hidden = true;
+  // If that was the "old" half of the pair session still in progress,
+  // un-advance the step too -- otherwise the app would keep expecting a
+  // "new" scan to complete a pairing whose "old" half no longer exists.
+  if (row.correlation_id === pairCorrelationId && row.label_version === "old" && pairStep === "new") {
+   pairStep = "old";
+   updatePairProgressUI();
+  }
   loadHistory($("search-input").value.trim());
   focusManualInput();
  });

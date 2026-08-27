@@ -1,9 +1,9 @@
 # Label Scan Correlator
 
-A camera-based scanner for part labels (Data Matrix, QR, Code128). Every
-scan is saved to Supabase with a timestamp, and two scans of the same part
-— an old-format label and its new-format replacement — can be linked
-together so you can trace one back to the other.
+A camera-based scanner for part labels (Data Matrix, QR, Code128). Scans
+happen in pairs — the old-format label and its new-format replacement,
+one right after the other — and both save to Supabase, timestamped, under
+a shared `correlation_id` so you can trace one back to the other.
 
 Plain HTML/CSS/JS, no build step, no npm. Open `index.html` through any
 static file server (or GitHub Pages) and it runs.
@@ -31,19 +31,27 @@ different symbology, add it to that array — see the full list in
 
 ## Correlating old ↔ new labels
 
-Two ways to link a pair, since in practice the replacement label for a
-given part may not show up until a later batch:
-
-- **Pair mode** (toggle at the top of the Scan card): scan the old label,
-  then the new label, right after each other. Both are saved sharing one
-  `correlation_id`.
-- **Link…** on any single (unpaired) scan in the "Waiting to be linked"
-  list: search and pick its match from the opposite label version,
-  whenever it eventually gets scanned. This just updates that row's
-  `correlation_id` to match.
+Every scan is part of a pair: scan the old label, then its new-label
+replacement, right after each other. Both save under the same
+`correlation_id`, and the "1. Old label → 2. New label" indicator at the
+top of the Scan card tracks which half you're on. There's no way to save
+a scan on its own — the app always expects the other half next.
 
 The Recent scans list groups rows by `correlation_id`, showing the old and
 new side by side once both exist.
+
+**If a pairing gets interrupted** (closed the app after scanning the old
+label but before its match arrived, or hit Undo on the old half after
+already moving on) — that scan sits in "Waiting to be linked" until you
+click **Link…** on it, search, and pick its match whenever it does turn
+up. That's a recovery path for the exception, not a second way to work
+normally.
+
+The preview also flags one specific mistake: if a code matching the OLD
+label format shows up while you're on the "New label" step, it's usually
+the same label scanned twice — the warning doesn't block saving (the new
+format isn't known yet, so it's just a heads-up), but it's worth a second
+look before confirming.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 
