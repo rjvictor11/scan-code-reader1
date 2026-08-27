@@ -199,7 +199,14 @@ function showPreview(raw) {
   ? `<div><span class="field-label">EBOM</span>${esc(ebom)}</div><div><span class="field-label">Traceability</span>${esc(traceability)}</div>`
   : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`;
  $("preview").hidden = false;
- checkForDuplicate(raw, ++previewGeneration);
+ runDuplicateCheck(raw);
+}
+
+function runDuplicateCheck(raw) {
+ const generation = ++previewGeneration;
+ $("btn-save").disabled = true;
+ $("btn-save").textContent = "Checking…";
+ checkForDuplicate(raw, generation);
 }
 
 // EBOM matching across scans is normal -- it just means two units of the
@@ -207,7 +214,10 @@ function showPreview(raw) {
 // same code showing up twice anywhere, on either side, in any pair -- a
 // physical label should only ever be scanned once. Checked against the
 // database (not just this session) since the duplicate could've been
-// scanned in an earlier, unrelated pair.
+// scanned in an earlier, unrelated pair. This is production traceability
+// data, so a confirmed or unconfirmed duplicate blocks Save outright
+// (fails closed) rather than just warning -- Discard & rescan is the only
+// way past it.
 async function checkForDuplicate(raw, generation) {
  const trimmed = raw.trim();
  const { data, error } = await sbClient
@@ -215,12 +225,30 @@ async function checkForDuplicate(raw, generation) {
   .select("label_version, scanned_at")
   .eq("raw_code", trimmed)
   .limit(1);
- if (error || generation !== previewGeneration) return; // stale (a newer scan came in) or the check itself failed -- don't block on it
- if (!data || !data.length) return;
- const existing = data[0];
- const warning = `<div class="msg err">This exact code was already scanned before (as ${esc(existing.label_version)}, ${esc(formatTimestamp(existing.scanned_at))}) &mdash; looks like a duplicate.</div>`;
- $("preview-fields").insertAdjacentHTML("afterbegin", warning);
+ if (generation !== previewGeneration) return; // a newer scan superseded this one -- ignore
+
+ if (error) {
+  $("preview-fields").insertAdjacentHTML("afterbegin",
+   `<div class="msg err">Couldn't check for duplicates (${esc(error.message)}) &mdash; <button class="link-inline" data-retry-dup-check="${esc(raw)}">Retry</button></div>`);
+  return; // btn-save stays disabled
+ }
+
+ if (data && data.length) {
+  const existing = data[0];
+  $("preview-fields").insertAdjacentHTML("afterbegin",
+   `<div class="msg err">This exact code was already scanned before (as ${esc(existing.label_version)}, ${esc(formatTimestamp(existing.scanned_at))}) &mdash; can't save a duplicate. Discard and scan the right label.</div>`);
+  return; // btn-save stays disabled
+ }
+
+ $("btn-save").disabled = false;
+ $("btn-save").textContent = "Save";
 }
+
+$("preview-fields").addEventListener("click", e => {
+ const btn = e.target.closest("button[data-retry-dup-check]");
+ if (!btn) return;
+ runDuplicateCheck(btn.dataset.retryDupCheck);
+});
 
 $("btn-rescan").addEventListener("click", () => {
  pendingDecoded = null;
