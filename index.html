@@ -54,7 +54,6 @@
  .pair-progress .arrow{color:var(--muted)}
 
  #reader-region{width:100%;border-radius:8px;overflow:hidden;background:#000}
- #reader-region:empty{display:none}
  #camera-controls{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
  #camera-controls button{flex:1;min-width:120px}
 
@@ -119,7 +118,7 @@
    <span class="step" data-step="new">2. New label</span>
   </div>
 
-  <div id="reader-region"></div>
+  <div id="reader-region" hidden></div>
   <div id="camera-controls">
    <button id="btn-start-camera">Start camera</button>
    <button id="btn-stop-camera" class="ghost" hidden>Stop camera</button>
@@ -131,7 +130,7 @@
   <div class="or-sep">or</div>
 
   <label class="file-label">Upload a photo of the label
-   <input type="file" id="file-input" accept="image/*" capture="environment">
+   <input type="file" id="file-input" accept="image/*">
   </label>
 
   <label>Manual entry</label>

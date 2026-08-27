@@ -92,6 +92,11 @@ function showCameraError(err) {
 
 async function launchCamera(cameraId) {
  const scanner = getScanner();
+ // Must be visible (real width/height) BEFORE start(): the library measures
+ // this element's clientWidth up front to size the <video> it inserts, and
+ // a still-hidden container measures as 0 -- which then sticks as the
+ // video's inline width forever, even once this element becomes visible.
+ $("reader-region").hidden = false;
  await scanner.start(cameraId, { fps: 10, qrbox: { width: 260, height: 260 } }, onDecoded, () => {});
  cameraRunning = true;
  $("btn-start-camera").hidden = true;
@@ -118,6 +123,7 @@ async function stopCamera() {
   html5Qrcode.clear();
  }
  cameraRunning = false;
+ $("reader-region").hidden = true;
  $("btn-start-camera").hidden = false;
  $("btn-stop-camera").hidden = true;
  $("btn-torch").hidden = true;
