@@ -18,7 +18,6 @@ const SCAN_FORMATS = [
 
 let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
-let pairOldScan = null; // {raw, ebom} of this session's old-label scan, for cross-checking the new one
 let pendingDecoded = null; // {raw, ebom, traceability}
 let html5Qrcode = null;
 let cameraRunning = false;
@@ -26,6 +25,7 @@ let torchOn = false;
 let undoTimer = null;
 let historyRows = [];
 let linkTargetRow = null;
+let previewGeneration = 0; // guards the async duplicate check against a stale response landing after a newer scan
 
 function esc(s) {
  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -61,7 +61,6 @@ function focusManualInput() {
 function resetPairSession() {
  pairStep = "old";
  pairCorrelationId = crypto.randomUUID();
- pairOldScan = null;
  updatePairProgressUI();
 }
 
@@ -196,19 +195,31 @@ function showPreview(raw) {
  const { ebom, traceability } = parseCode(raw);
  pendingDecoded = { raw, ebom, traceability };
  $("preview-raw").textContent = raw;
- // EBOM matching between the old and new scan is normal -- it just means
- // two units of the same part number. The only thing that's unambiguously
- // wrong is the exact same code (old and new format both unknown at this
- // point, so byte-for-byte identical is the only safe signal) showing up
- // on both sides of a pair -- that's the same physical label scanned twice.
- const isDuplicate = pairStep === "new" && pairOldScan && raw.trim() === pairOldScan.raw;
- const warning = isDuplicate
-  ? `<div class="msg err">This is the exact same code as the old label you just scanned &mdash; looks like it got scanned twice instead of its new-label match.</div>`
-  : "";
- $("preview-fields").innerHTML = warning + (ebom
+ $("preview-fields").innerHTML = ebom
   ? `<div><span class="field-label">EBOM</span>${esc(ebom)}</div><div><span class="field-label">Traceability</span>${esc(traceability)}</div>`
-  : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`);
+  : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`;
  $("preview").hidden = false;
+ checkForDuplicate(raw, ++previewGeneration);
+}
+
+// EBOM matching across scans is normal -- it just means two units of the
+// same part number. The only thing that's unambiguously wrong is the exact
+// same code showing up twice anywhere, on either side, in any pair -- a
+// physical label should only ever be scanned once. Checked against the
+// database (not just this session) since the duplicate could've been
+// scanned in an earlier, unrelated pair.
+async function checkForDuplicate(raw, generation) {
+ const trimmed = raw.trim();
+ const { data, error } = await sbClient
+  .from("label_scans")
+  .select("label_version, scanned_at")
+  .eq("raw_code", trimmed)
+  .limit(1);
+ if (error || generation !== previewGeneration) return; // stale (a newer scan came in) or the check itself failed -- don't block on it
+ if (!data || !data.length) return;
+ const existing = data[0];
+ const warning = `<div class="msg err">This exact code was already scanned before (as ${esc(existing.label_version)}, ${esc(formatTimestamp(existing.scanned_at))}) &mdash; looks like a duplicate.</div>`;
+ $("preview-fields").insertAdjacentHTML("afterbegin", warning);
 }
 
 $("btn-rescan").addEventListener("click", () => {
@@ -239,7 +250,6 @@ $("btn-save").addEventListener("click", async () => {
  loadHistory($("search-input").value.trim());
 
  if (pairStep === "old") {
-  pairOldScan = { raw: data.raw_code, ebom: data.ebom };
   pairStep = "new";
   updatePairProgressUI();
  } else {
@@ -261,7 +271,6 @@ function showSavedToast(row) {
   // "new" scan to complete a pairing whose "old" half no longer exists.
   if (row.correlation_id === pairCorrelationId && row.label_version === "old" && pairStep === "new") {
    pairStep = "old";
-   pairOldScan = null;
    updatePairProgressUI();
   }
   loadHistory($("search-input").value.trim());

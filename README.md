@@ -47,12 +47,17 @@ click **Link…** on it, search, and pick its match whenever it does turn
 up. That's a recovery path for the exception, not a second way to work
 normally.
 
-The preview also flags one specific mistake: scanning the *exact same
-code* for both the old and new label in a pair (the same physical label
-read twice instead of its actual match). The old and new label sharing
-the same EBOM is completely normal — that just means two units of the
-same part number — so that alone is never flagged. The warning doesn't
-block saving either way, it's just a heads-up.
+The preview also flags one specific mistake: scanning a code that's
+*exactly* the same as one already saved — anywhere, not just this
+session, and regardless of which side (old or new) it was saved as the
+first time. A physical label should only ever get scanned once, so any
+exact repeat almost always means the same label got scanned twice
+instead of its actual match. This is checked against the database live
+(`checkForDuplicate` in `js/app.js`), not just against what's in this
+browser tab. Two units of the same part number sharing an EBOM is
+completely normal, though — the check is on the raw code, never on
+EBOM alone — and the warning doesn't block saving either way, it's
+just a heads-up.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 
@@ -80,8 +85,9 @@ first for the full history.
 
 1. **Database** — this has its own dedicated Supabase project (separate from
    harness-toolkit's). Open its SQL Editor and run
-   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql) once to
-   create the `label_scans` table. `js/supabase-client.js` already has that
+   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql) and
+   [`migrations/002_raw_code_index.sql`](migrations/002_raw_code_index.sql),
+   in that order, once each. `js/supabase-client.js` already has that
    project's URL/anon key filled in — nothing else to configure.
 2. **Run it** — any static file server works, e.g.:
    ```
