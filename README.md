@@ -45,6 +45,28 @@ given part may not show up until a later batch:
 The Recent scans list groups rows by `correlation_id`, showing the old and
 new side by side once both exist.
 
+## Using a handheld barcode scanner (instead of, or with, a phone camera)
+
+A USB or Bluetooth handheld scanner acts like a keyboard — it types the
+decoded text wherever the cursor is, then hits Enter. The **Manual entry**
+field is built for that: it's focused by default, and re-focused after
+every save, undo, and discard, so you can keep scanning back-to-back
+without touching the screen between scans. It only loses focus while a
+scan is sitting in the preview waiting for you to hit Save or Discard —
+that pause is intentional, so a misread doesn't get written before you
+see it.
+
+The phone camera ("Start camera") works the same way otherwise, and both
+can be used interchangeably scan to scan.
+
+## Downloading a report
+
+**Download report** (top of the Recent scans card) exports everything as
+a CSV — one row per part (old and new label side by side, `linked`
+yes/no), not one row per scan. If there's text in the search box, the
+export is filtered the same way the on-screen list is; clear the search
+first for the full history.
+
 ## Setup
 
 1. **Database** — this has its own dedicated Supabase project (separate from

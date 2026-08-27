@@ -48,6 +48,14 @@ function getScanner() {
  return html5Qrcode;
 }
 
+// A handheld barcode scanner acts like a keyboard -- it just types the
+// decoded text into whatever's focused, then Enter. Keeping this field
+// focused by default (and re-focusing after every save/undo/discard) lets
+// someone scan repeatedly without touching the screen between scans.
+function focusManualInput() {
+ $("manual-input").focus();
+}
+
 // ---- Mode / pair-progress ----
 
 function resetPairSession() {
@@ -75,6 +83,7 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
   $("pair-progress").hidden = mode !== "pair";
   $("version-picker").style.display = mode === "pair" ? "none" : "";
   if (mode === "pair") resetPairSession();
+  focusManualInput();
  });
 });
 
@@ -205,6 +214,7 @@ function showPreview(raw) {
 $("btn-rescan").addEventListener("click", () => {
  pendingDecoded = null;
  $("preview").hidden = true;
+ focusManualInput();
 });
 
 $("btn-save").addEventListener("click", async () => {
@@ -236,6 +246,7 @@ $("btn-save").addEventListener("click", async () => {
  } else if (mode === "pair" && pairStep === "new") {
   resetPairSession();
  }
+ focusManualInput();
 });
 
 function showSavedToast(row) {
@@ -247,6 +258,7 @@ function showSavedToast(row) {
   await sbClient.from("label_scans").delete().eq("id", row.id);
   toast.hidden = true;
   loadHistory($("search-input").value.trim());
+  focusManualInput();
  });
  undoTimer = setTimeout(() => { toast.hidden = true; }, 8000);
 }
@@ -389,6 +401,58 @@ $("search-input").addEventListener("input", e => {
 });
 $("btn-refresh").addEventListener("click", () => loadHistory($("search-input").value.trim()));
 
+// ---- CSV report ----
+
+function csvValue(v) {
+ if (v == null) return "";
+ const s = String(v);
+ return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// One row per correlation group (not per scan) -- old/new side by side, so
+// the report reads the same way the "Recent scans" list does.
+function buildReportCsv(rows) {
+ const header = ["linked", "old_raw_code", "old_ebom", "old_traceability", "old_scanned_at", "new_raw_code", "new_ebom", "new_traceability", "new_scanned_at", "correlation_id"];
+ const lines = [header.join(",")];
+ for (const groupRows of groupByCorrelation(rows).values()) {
+  const oldRow = groupRows.find(r => r.label_version === "old");
+  const newRow = groupRows.find(r => r.label_version === "new");
+  lines.push([
+   oldRow && newRow ? "yes" : "no",
+   oldRow ? oldRow.raw_code : "", oldRow ? oldRow.ebom : "", oldRow ? oldRow.traceability : "", oldRow ? formatTimestamp(oldRow.scanned_at) : "",
+   newRow ? newRow.raw_code : "", newRow ? newRow.ebom : "", newRow ? newRow.traceability : "", newRow ? formatTimestamp(newRow.scanned_at) : "",
+   (oldRow || newRow).correlation_id,
+  ].map(csvValue).join(","));
+ }
+ return lines.join("\r\n");
+}
+
+$("btn-download-report").addEventListener("click", async () => {
+ const btn = $("btn-download-report");
+ btn.disabled = true;
+ const searchTerm = $("search-input").value.trim();
+ let query = sbClient.from("label_scans").select("*").order("scanned_at", { ascending: false });
+ if (searchTerm) {
+  const like = `%${searchTerm}%`;
+  query = query.or(`raw_code.ilike.${like},ebom.ilike.${like},traceability.ilike.${like}`);
+ }
+ const { data, error } = await query;
+ btn.disabled = false;
+ if (error) { alert("Couldn't build the report: " + error.message); return; }
+
+ const csv = buildReportCsv(data || []);
+ const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `label-scans-report-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ URL.revokeObjectURL(url);
+});
+
 // ---- Init ----
 resetPairSession();
 loadHistory();
+focusManualInput();
