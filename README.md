@@ -47,11 +47,11 @@ new side by side once both exist.
 
 ## Setup
 
-1. **Database** — open your Supabase project's SQL Editor and run
-   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql). That's
-   the only setup step; `js/supabase-client.js` already points at the same
-   Supabase project used by `harness-toolkit` (same URL/anon key), just with
-   its own new `label_scans` table — unrelated to that repo's other data.
+1. **Database** — this has its own dedicated Supabase project (separate from
+   harness-toolkit's). Open its SQL Editor and run
+   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql) once to
+   create the `label_scans` table. `js/supabase-client.js` already has that
+   project's URL/anon key filled in — nothing else to configure.
 2. **Run it** — any static file server works, e.g.:
    ```
    npx serve .
