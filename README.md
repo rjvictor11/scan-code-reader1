@@ -47,11 +47,12 @@ click **Link…** on it, search, and pick its match whenever it does turn
 up. That's a recovery path for the exception, not a second way to work
 normally.
 
-The preview also flags one specific mistake: if a code matching the OLD
-label format shows up while you're on the "New label" step, it's usually
-the same label scanned twice — the warning doesn't block saving (the new
-format isn't known yet, so it's just a heads-up), but it's worth a second
-look before confirming.
+The preview also flags one specific mistake: scanning the *exact same
+code* for both the old and new label in a pair (the same physical label
+read twice instead of its actual match). The old and new label sharing
+the same EBOM is completely normal — that just means two units of the
+same part number — so that alone is never flagged. The warning doesn't
+block saving either way, it's just a heads-up.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 

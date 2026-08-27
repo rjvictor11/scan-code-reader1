@@ -18,6 +18,7 @@ const SCAN_FORMATS = [
 
 let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
+let pairOldScan = null; // {raw, ebom} of this session's old-label scan, for cross-checking the new one
 let pendingDecoded = null; // {raw, ebom, traceability}
 let html5Qrcode = null;
 let cameraRunning = false;
@@ -60,6 +61,7 @@ function focusManualInput() {
 function resetPairSession() {
  pairStep = "old";
  pairCorrelationId = crypto.randomUUID();
+ pairOldScan = null;
  updatePairProgressUI();
 }
 
@@ -194,13 +196,16 @@ function showPreview(raw) {
  const { ebom, traceability } = parseCode(raw);
  pendingDecoded = { raw, ebom, traceability };
  $("preview-raw").textContent = raw;
- // The new label format is unknown, so this can only catch one direction:
- // an old-format code showing up on the "new label" step, which usually
- // means the same label got scanned twice in a row.
- const mismatchWarning = pairStep === "new" && ebom
-  ? `<div class="msg err">This matches the OLD label format, but you're on the "New label" step &mdash; check you didn't scan the old label again.</div>`
+ // EBOM matching between the old and new scan is normal -- it just means
+ // two units of the same part number. The only thing that's unambiguously
+ // wrong is the exact same code (old and new format both unknown at this
+ // point, so byte-for-byte identical is the only safe signal) showing up
+ // on both sides of a pair -- that's the same physical label scanned twice.
+ const isDuplicate = pairStep === "new" && pairOldScan && raw.trim() === pairOldScan.raw;
+ const warning = isDuplicate
+  ? `<div class="msg err">This is the exact same code as the old label you just scanned &mdash; looks like it got scanned twice instead of its new-label match.</div>`
   : "";
- $("preview-fields").innerHTML = mismatchWarning + (ebom
+ $("preview-fields").innerHTML = warning + (ebom
   ? `<div><span class="field-label">EBOM</span>${esc(ebom)}</div><div><span class="field-label">Traceability</span>${esc(traceability)}</div>`
   : `<div class="muted">Doesn't match the P+EBOM-Traceability pattern &mdash; will be saved as raw text only.</div>`);
  $("preview").hidden = false;
@@ -234,6 +239,7 @@ $("btn-save").addEventListener("click", async () => {
  loadHistory($("search-input").value.trim());
 
  if (pairStep === "old") {
+  pairOldScan = { raw: data.raw_code, ebom: data.ebom };
   pairStep = "new";
   updatePairProgressUI();
  } else {
@@ -255,6 +261,7 @@ function showSavedToast(row) {
   // "new" scan to complete a pairing whose "old" half no longer exists.
   if (row.correlation_id === pairCorrelationId && row.label_version === "old" && pairStep === "new") {
    pairStep = "old";
+   pairOldScan = null;
    updatePairProgressUI();
   }
   loadHistory($("search-input").value.trim());
