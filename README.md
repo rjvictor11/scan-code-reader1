@@ -48,19 +48,22 @@ up. That's a recovery path for the exception, not a second way to work
 normally.
 
 The preview also blocks one specific mistake: scanning a code that's
-*exactly* the same as one already saved in the current project —
-anywhere, not just this session, and regardless of which side (old or
-new) it was saved as the first time. A physical label should only ever
-get scanned once, so any exact repeat almost always means the same
-label got scanned twice instead of its actual match. This is checked
-against the database live (`checkForDuplicate` in `js/app.js`), not
-just against what's in this browser tab — Save stays disabled while
-the check is running and stays disabled if it finds one; Discard &
-rescan is the only way past it. If the check itself fails (e.g. a
-network hiccup), it fails closed too — Save stays blocked with a Retry
-button rather than letting an unverified scan through. Two units of
-the same part number sharing an EBOM is completely normal, though —
-the check is on the raw code, never on EBOM alone.
+*exactly* the same as one already saved — anywhere, not just this
+session, regardless of which side (old or new) it was saved as the
+first time, and regardless of which project it was saved under. A
+physical label should only ever get scanned once, and the identical
+code can't legitimately belong to two different projects either, so
+any exact repeat almost always means the same label got scanned twice
+instead of its actual match. This is checked against the database live
+(`checkForDuplicate` in `js/app.js`), not just against what's in this
+browser tab — Save stays disabled while the check is running and stays
+disabled if it finds one, and the warning names which project the
+earlier scan belongs to; Discard & rescan is the only way past it. If
+the check itself fails (e.g. a network hiccup), it fails closed too —
+Save stays blocked with a Retry button rather than letting an
+unverified scan through. Two units of the same part number sharing an
+EBOM is completely normal, though — the check is on the raw code,
+never on EBOM alone.
 
 If a duplicate (or any other bad row) does end up saved, **Delete** next
 to **Link…** in "Waiting to be linked" removes it permanently — the only
@@ -69,15 +72,17 @@ the Undo window).
 
 ## Projects
 
-The **Project** selector at the top of the page scopes *everything* to
-whichever one is active: the Recent scans list, the duplicate check, the
-CSV report, and "Download report" all only see that project's rows — a
-code existing under two different projects is normal, not a duplicate.
-The choice is remembered in this browser (`localStorage`) so it doesn't
-need reselecting each visit; a fresh browser with nothing stored yet
-defaults to `WS`. **Download all** (next to Download report) is the one place
-that ignores the selector on purpose — it exports every project combined
-into a single file.
+The **Project** selector at the top of the page scopes most things to
+whichever one is active: the Recent scans list, the CSV report, and
+"Download report" all only see that project's rows. The duplicate check
+is the one deliberate exception — it looks across every project, not
+just the selected one, since the same physical label can't legitimately
+turn up under two different projects any more than it can turn up twice
+in the same one. The choice is remembered in this browser
+(`localStorage`) so it doesn't need reselecting each visit; a fresh
+browser with nothing stored yet defaults to `WS`. **Download all**
+(next to Download report) is the one place that ignores the selector
+on purpose — it exports every project combined into a single file.
 
 The selectable list is the `PROJECTS` array in `js/app.js`, matched by the
 `<option>`s in `index.html` — hardcoded on purpose, not read from the
@@ -93,9 +98,10 @@ brand-new code also needs a row inserted into `projects` first (one line
 of SQL, run once) so the foreign key accepts it.
 
 Switching the selector mid-scan discards whatever's in the preview and
-resets the old/new pairing in progress — a pending Save was only checked
-for duplicates against the project you were on, and an old/new pair
-can't have its two halves end up filed under different projects.
+resets the old/new pairing in progress — a scan was made with one
+project in mind, so a stray dropdown change shouldn't silently
+re-attribute it to a different one on Save, and an old/new pair can't
+have its two halves end up filed under different projects either.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 

@@ -60,11 +60,12 @@ $("project-select").value = currentProject;
 $("project-select").addEventListener("change", () => {
  currentProject = $("project-select").value;
  localStorage.setItem(PROJECT_KEY, currentProject);
- // A pending preview's Save button was enabled (or not) by a duplicate
- // check scoped to the OLD project -- it's no longer valid for the new
- // one, and an in-progress old/new pairing shouldn't be allowed to end up
- // split across two different projects either. Discard both rather than
- // let a stale, unverified scan sit there ready to Save.
+ // A scan sitting in the preview was made with one project in mind --
+ // letting a stray dropdown change silently re-attribute it to a
+ // different project on Save would be wrong, even though the duplicate
+ // check itself is global and still valid either way. An in-progress
+ // old/new pairing can't be allowed to end up split across two different
+ // projects either. Discard both rather than risk either.
  pendingDecoded = null;
  $("preview").hidden = true;
  resetPairSession();
@@ -242,20 +243,20 @@ function runDuplicateCheck(raw) {
 
 // EBOM matching across scans is normal -- it just means two units of the
 // same part number. The only thing that's unambiguously wrong is the exact
-// same code showing up twice anywhere, on either side, in any pair -- a
-// physical label should only ever be scanned once. Checked against the
-// database (not just this session, and scoped to the current project --
-// different projects are separate pools, so the same code legitimately
-// existing in both isn't a duplicate) since it could've been scanned in an
-// earlier, unrelated pair. This is production traceability data, so a
-// confirmed or unconfirmed duplicate blocks Save outright (fails closed)
-// rather than just warning -- Discard & rescan is the only way past it.
+// same code showing up twice anywhere -- on either side, in any pair, under
+// any project -- since a physical label should only ever be scanned once,
+// and the identical code can't legitimately belong to two different
+// projects either. Checked against the database (not just this session,
+// and deliberately NOT scoped to the current project) since it could've
+// been scanned in an earlier, unrelated pair under any project. This is
+// production traceability data, so a confirmed or unconfirmed duplicate
+// blocks Save outright (fails closed) rather than just warning -- Discard &
+// rescan is the only way past it.
 async function checkForDuplicate(raw, generation) {
  const trimmed = raw.trim();
  const { data, error } = await sbClient
   .from("label_scans")
-  .select("label_version, scanned_at")
-  .eq("project", currentProject)
+  .select("project, label_version, scanned_at")
   .eq("raw_code", trimmed)
   .limit(1);
  if (generation !== previewGeneration) return; // a newer scan superseded this one -- ignore
@@ -269,7 +270,7 @@ async function checkForDuplicate(raw, generation) {
  if (data && data.length) {
   const existing = data[0];
   $("preview-fields").insertAdjacentHTML("afterbegin",
-   `<div class="msg err">This exact code was already scanned before (as ${esc(existing.label_version)}, ${esc(formatTimestamp(existing.scanned_at))}) &mdash; can't save a duplicate. Discard and scan the right label.</div>`);
+   `<div class="msg err">This exact code was already scanned before (as ${esc(existing.label_version)} under project ${esc(existing.project)}, ${esc(formatTimestamp(existing.scanned_at))}) &mdash; can't save a duplicate. Discard and scan the right label.</div>`);
   return; // btn-save stays disabled
  }
 
