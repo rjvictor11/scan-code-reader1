@@ -69,19 +69,26 @@ the Undo window).
 
 ## Projects
 
-The **Project** selector at the top of the page (currently `WS` and
-`DT`) scopes *everything* to whichever one is active: the Recent scans
-list, the duplicate check, and the CSV report all only see that
-project's rows — a code existing under both WS and DT is normal, not a
-duplicate. The choice is remembered in this browser (`localStorage`) so
-it doesn't need reselecting each visit, matching how the pair-progress
-and manual-entry focus already work without per-scan friction.
+The **Project** selector at the top of the page scopes *everything* to
+whichever one is active: the Recent scans list, the duplicate check, the
+CSV report, and "Download report" all only see that project's rows — a
+code existing under two different projects is normal, not a duplicate.
+The choice is remembered in this browser (`localStorage`) so it doesn't
+need reselecting each visit. If nothing's stored yet (a fresh browser),
+it defaults to `WS` specifically, not just whichever project happens to
+sort first. **Download all** (next to Download report) is the one place
+that ignores the selector on purpose — it exports every project combined
+into a single file.
 
-To add a project later, copy the `alter table ... check (...)` lines in
-[`migrations/003_add_project.sql`](migrations/003_add_project.sql) into a
-new migration with the expanded list, and add the matching `<option>` to
-`#project-select` in `index.html` (and to the `PROJECTS` array in
-`js/app.js`, which the dropdown is validated against).
+The list itself lives in a `projects` table
+([`migrations/004_projects_table.sql`](migrations/004_projects_table.sql)),
+not hardcoded in the app — only rows with `active = true` show up in the
+dropdown. **To add, rename, activate, or deactivate a project, edit that
+table directly in Supabase's Table Editor — no code change or redeploy
+needed.** That migration seeds `WS` and `DT` active, plus `WL`, `JL`, `JT`,
+and `WD` reserved (`active = false`, sitting in the database but not yet
+selectable) — flip a reserved one's `active` column to `true` whenever
+it's actually needed.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 
@@ -99,19 +106,25 @@ can be used interchangeably scan to scan.
 
 ## Downloading a report
 
-**Download report** (top of the Recent scans card) exports everything as
-a CSV — one row per part (old and new label side by side, `linked`
-yes/no), not one row per scan. If there's text in the search box, the
-export is filtered the same way the on-screen list is; clear the search
-first for the full history.
+**Download report** (top of the Recent scans card) exports the current
+project as a CSV — one row per part (old and new label side by side,
+`linked` yes/no), not one row per scan. If there's text in the search
+box, the export is filtered the same way the on-screen list is; clear
+the search first for the full history. **Download all** next to it
+exports every project combined into one file instead (still tagged
+per-row by `project`), regardless of which one is currently selected.
+Both page through the full result set, so neither one silently
+truncates once a project has scanned past Supabase's per-request row
+cap.
 
 ## Setup
 
 1. **Database** — this has its own dedicated Supabase project (separate from
    harness-toolkit's). Open its SQL Editor and run, in order, once each:
    [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql),
-   [`migrations/002_raw_code_index.sql`](migrations/002_raw_code_index.sql), and
-   [`migrations/003_add_project.sql`](migrations/003_add_project.sql).
+   [`migrations/002_raw_code_index.sql`](migrations/002_raw_code_index.sql),
+   [`migrations/003_add_project.sql`](migrations/003_add_project.sql), and
+   [`migrations/004_projects_table.sql`](migrations/004_projects_table.sql).
    `js/supabase-client.js` already has that project's URL/anon key filled
    in — nothing else to configure.
 2. **Run it** — any static file server works, e.g.:
@@ -143,6 +156,11 @@ policies in `migrations/001_label_scans.sql` to `to authenticated` only.
 The "Undo" button after a save, and "Delete" on an unpaired scan, are
 single-row cleanup tools — there's no bulk-delete UI.
 
+`projects` is the one table the app can only read, never write — adding,
+renaming, activating, or deactivating a project is a deliberate action
+taken directly in Supabase, not something the anon key can do from the
+app itself.
+
 ## Files
 
 ```
@@ -153,5 +171,6 @@ js/theme.js              dark/light mode toggle
 vendor/html5-qrcode.min.js   scanning library (Apache-2.0, vendored so it works offline/without a CDN)
 migrations/001_label_scans.sql   table + RLS policies
 migrations/002_raw_code_index.sql   index backing the duplicate check
-migrations/003_add_project.sql   project column, its check constraint, and a composite index
+migrations/003_add_project.sql   project column and a composite index (its check constraint is later replaced by 004's foreign key)
+migrations/004_projects_table.sql   projects table (the actual source of the dropdown), seeded active/reserved rows, FK from label_scans
 ```

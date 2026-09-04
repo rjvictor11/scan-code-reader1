@@ -17,8 +17,10 @@ const SCAN_FORMATS = [
 ];
 
 const PROJECT_KEY = "scan_reader_project";
-const PROJECTS = ["WS", "DT"]; // must match the check constraint in migrations/003_add_project.sql
-let currentProject = PROJECTS.includes(localStorage.getItem(PROJECT_KEY)) ? localStorage.getItem(PROJECT_KEY) : PROJECTS[0];
+// The active project list now lives in the `projects` table (see
+// migrations/004_projects_table.sql), not a hardcoded array -- loadProjects()
+// fills this in for real before anything else runs.
+let currentProject = localStorage.getItem(PROJECT_KEY) || null;
 
 let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
@@ -47,7 +49,28 @@ function formatTimestamp(iso) {
 
 // ---- Project ----
 
-$("project-select").value = currentProject;
+// Populates #project-select from the `projects` table (only rows with
+// active=true), rather than a hardcoded list -- so a project can be added
+// or hidden by editing that table directly in Supabase, no redeploy
+// needed. Must resolve before anything queries label_scans, since every
+// one of those queries is scoped by currentProject.
+async function loadProjects() {
+ const { data, error } = await sbClient.from("projects").select("code").eq("active", true).order("code");
+ if (error || !data || !data.length) {
+  $("project-select").innerHTML = `<option value="">(none available)</option>`;
+  $("project-select").disabled = true;
+  showCameraError(new Error("Couldn't load the project list" + (error ? ": " + error.message : " -- none are active in the database.")));
+  return;
+ }
+ const codes = data.map(p => p.code);
+ $("project-select").innerHTML = codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+ // Stored preference wins if it's still active; otherwise WS specifically
+ // (not just whichever sorts first), falling back further only if WS
+ // itself isn't active.
+ currentProject = codes.includes(currentProject) ? currentProject : (codes.includes("WS") ? "WS" : codes[0]);
+ $("project-select").value = currentProject;
+}
+
 $("project-select").addEventListener("change", () => {
  currentProject = $("project-select").value;
  localStorage.setItem(PROJECT_KEY, currentProject);
@@ -559,6 +582,9 @@ $("btn-download-report").addEventListener("click", () => downloadReport(currentP
 $("btn-download-report-all").addEventListener("click", () => downloadReport(null, "ALL"));
 
 // ---- Init ----
-resetPairSession();
-loadHistory();
-focusManualInput();
+(async () => {
+ await loadProjects(); // currentProject must be resolved before any label_scans query runs
+ resetPairSession();
+ loadHistory();
+ focusManualInput();
+})();
