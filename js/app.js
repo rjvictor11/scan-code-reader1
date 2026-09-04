@@ -54,15 +54,19 @@ function formatTimestamp(iso) {
 // or hidden by editing that table directly in Supabase, no redeploy
 // needed. Must resolve before anything queries label_scans, since every
 // one of those queries is scoped by currentProject.
+//
+// Falls back to WS/DT if the table can't be reached at all (migration 004
+// not run yet, or just a network blip) rather than locking scanning up
+// entirely -- both codes are guaranteed to exist as real rows once 004
+// does run, so nothing about this fallback can violate the label_scans FK.
+const PROJECT_FALLBACK = ["WS", "DT"];
+
 async function loadProjects() {
  const { data, error } = await sbClient.from("projects").select("code").eq("active", true).order("code");
+ const codes = (!error && data && data.length) ? data.map(p => p.code) : PROJECT_FALLBACK;
  if (error || !data || !data.length) {
-  $("project-select").innerHTML = `<option value="">(none available)</option>`;
-  $("project-select").disabled = true;
-  showCameraError(new Error("Couldn't load the project list" + (error ? ": " + error.message : " -- none are active in the database.")));
-  return;
+  console.warn("Couldn't load projects from the database, falling back to WS/DT:", error && error.message);
  }
- const codes = data.map(p => p.code);
  $("project-select").innerHTML = codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
  // Stored preference wins if it's still active; otherwise WS specifically
  // (not just whichever sorts first), falling back further only if WS
