@@ -16,6 +16,10 @@ const SCAN_FORMATS = [
  Html5QrcodeSupportedFormats.CODE_128,
 ];
 
+const PROJECT_KEY = "scan_reader_project";
+const PROJECTS = ["WS", "DT"]; // must match the check constraint in migrations/003_add_project.sql
+let currentProject = PROJECTS.includes(localStorage.getItem(PROJECT_KEY)) ? localStorage.getItem(PROJECT_KEY) : PROJECTS[0];
+
 let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
 let pendingDecoded = null; // {raw, ebom, traceability}
@@ -40,6 +44,15 @@ function parseCode(raw) {
 function formatTimestamp(iso) {
  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 }
+
+// ---- Project ----
+
+$("project-select").value = currentProject;
+$("project-select").addEventListener("change", () => {
+ currentProject = $("project-select").value;
+ localStorage.setItem(PROJECT_KEY, currentProject);
+ loadHistory($("search-input").value.trim());
+});
 
 function getScanner() {
  if (!html5Qrcode) {
@@ -213,16 +226,18 @@ function runDuplicateCheck(raw) {
 // same part number. The only thing that's unambiguously wrong is the exact
 // same code showing up twice anywhere, on either side, in any pair -- a
 // physical label should only ever be scanned once. Checked against the
-// database (not just this session) since the duplicate could've been
-// scanned in an earlier, unrelated pair. This is production traceability
-// data, so a confirmed or unconfirmed duplicate blocks Save outright
-// (fails closed) rather than just warning -- Discard & rescan is the only
-// way past it.
+// database (not just this session, and scoped to the current project --
+// different projects are separate pools, so the same code legitimately
+// existing in both isn't a duplicate) since it could've been scanned in an
+// earlier, unrelated pair. This is production traceability data, so a
+// confirmed or unconfirmed duplicate blocks Save outright (fails closed)
+// rather than just warning -- Discard & rescan is the only way past it.
 async function checkForDuplicate(raw, generation) {
  const trimmed = raw.trim();
  const { data, error } = await sbClient
   .from("label_scans")
   .select("label_version, scanned_at")
+  .eq("project", currentProject)
   .eq("raw_code", trimmed)
   .limit(1);
  if (generation !== previewGeneration) return; // a newer scan superseded this one -- ignore
@@ -266,6 +281,7 @@ $("btn-save").addEventListener("click", async () => {
  if (!pendingDecoded || isSaving) return;
  isSaving = true;
  const row = {
+  project: currentProject,
   correlation_id: pairCorrelationId,
   label_version: pairStep,
   raw_code: pendingDecoded.raw,
@@ -327,7 +343,7 @@ function groupByCorrelation(rows) {
 }
 
 async function loadHistory(searchTerm) {
- let query = sbClient.from("label_scans").select("*").order("scanned_at", { ascending: false }).limit(200);
+ let query = sbClient.from("label_scans").select("*").eq("project", currentProject).order("scanned_at", { ascending: false }).limit(200);
  if (searchTerm) {
   const like = `%${searchTerm}%`;
   query = query.or(`raw_code.ilike.${like},ebom.ilike.${like},traceability.ilike.${like}`);
@@ -478,12 +494,13 @@ function csvValue(v) {
 // One row per correlation group (not per scan) -- old/new side by side, so
 // the report reads the same way the "Recent scans" list does.
 function buildReportCsv(rows) {
- const header = ["linked", "old_raw_code", "old_ebom", "old_traceability", "old_scanned_at", "new_raw_code", "new_ebom", "new_traceability", "new_scanned_at", "correlation_id"];
+ const header = ["project", "linked", "old_raw_code", "old_ebom", "old_traceability", "old_scanned_at", "new_raw_code", "new_ebom", "new_traceability", "new_scanned_at", "correlation_id"];
  const lines = [header.join(",")];
  for (const groupRows of groupByCorrelation(rows).values()) {
   const oldRow = groupRows.find(r => r.label_version === "old");
   const newRow = groupRows.find(r => r.label_version === "new");
   lines.push([
+   (oldRow || newRow).project,
    oldRow && newRow ? "yes" : "no",
    oldRow ? oldRow.raw_code : "", oldRow ? oldRow.ebom : "", oldRow ? oldRow.traceability : "", oldRow ? formatTimestamp(oldRow.scanned_at) : "",
    newRow ? newRow.raw_code : "", newRow ? newRow.ebom : "", newRow ? newRow.traceability : "", newRow ? formatTimestamp(newRow.scanned_at) : "",
@@ -497,7 +514,7 @@ $("btn-download-report").addEventListener("click", async () => {
  const btn = $("btn-download-report");
  btn.disabled = true;
  const searchTerm = $("search-input").value.trim();
- let query = sbClient.from("label_scans").select("*").order("scanned_at", { ascending: false });
+ let query = sbClient.from("label_scans").select("*").eq("project", currentProject).order("scanned_at", { ascending: false });
  if (searchTerm) {
   const like = `%${searchTerm}%`;
   query = query.or(`raw_code.ilike.${like},ebom.ilike.${like},traceability.ilike.${like}`);
@@ -511,7 +528,7 @@ $("btn-download-report").addEventListener("click", async () => {
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
  a.href = url;
- a.download = `label-scans-report-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+ a.download = `label-scans-report-${currentProject}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
  document.body.appendChild(a);
  a.click();
  a.remove();

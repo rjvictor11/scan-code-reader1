@@ -47,17 +47,41 @@ click **Link…** on it, search, and pick its match whenever it does turn
 up. That's a recovery path for the exception, not a second way to work
 normally.
 
-The preview also flags one specific mistake: scanning a code that's
-*exactly* the same as one already saved — anywhere, not just this
-session, and regardless of which side (old or new) it was saved as the
-first time. A physical label should only ever get scanned once, so any
-exact repeat almost always means the same label got scanned twice
-instead of its actual match. This is checked against the database live
-(`checkForDuplicate` in `js/app.js`), not just against what's in this
-browser tab. Two units of the same part number sharing an EBOM is
-completely normal, though — the check is on the raw code, never on
-EBOM alone — and the warning doesn't block saving either way, it's
-just a heads-up.
+The preview also blocks one specific mistake: scanning a code that's
+*exactly* the same as one already saved in the current project —
+anywhere, not just this session, and regardless of which side (old or
+new) it was saved as the first time. A physical label should only ever
+get scanned once, so any exact repeat almost always means the same
+label got scanned twice instead of its actual match. This is checked
+against the database live (`checkForDuplicate` in `js/app.js`), not
+just against what's in this browser tab — Save stays disabled while
+the check is running and stays disabled if it finds one; Discard &
+rescan is the only way past it. If the check itself fails (e.g. a
+network hiccup), it fails closed too — Save stays blocked with a Retry
+button rather than letting an unverified scan through. Two units of
+the same part number sharing an EBOM is completely normal, though —
+the check is on the raw code, never on EBOM alone.
+
+If a duplicate (or any other bad row) does end up saved, **Delete** next
+to **Link…** in "Waiting to be linked" removes it permanently — the only
+built-in way to remove a scan that's more than a few seconds old (past
+the Undo window).
+
+## Projects
+
+The **Project** selector at the top of the page (currently `WS` and
+`DT`) scopes *everything* to whichever one is active: the Recent scans
+list, the duplicate check, and the CSV report all only see that
+project's rows — a code existing under both WS and DT is normal, not a
+duplicate. The choice is remembered in this browser (`localStorage`) so
+it doesn't need reselecting each visit, matching how the pair-progress
+and manual-entry focus already work without per-scan friction.
+
+To add a project later, copy the `alter table ... check (...)` lines in
+[`migrations/003_add_project.sql`](migrations/003_add_project.sql) into a
+new migration with the expanded list, and add the matching `<option>` to
+`#project-select` in `index.html` (and to the `PROJECTS` array in
+`js/app.js`, which the dropdown is validated against).
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 
@@ -84,11 +108,12 @@ first for the full history.
 ## Setup
 
 1. **Database** — this has its own dedicated Supabase project (separate from
-   harness-toolkit's). Open its SQL Editor and run
-   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql) and
-   [`migrations/002_raw_code_index.sql`](migrations/002_raw_code_index.sql),
-   in that order, once each. `js/supabase-client.js` already has that
-   project's URL/anon key filled in — nothing else to configure.
+   harness-toolkit's). Open its SQL Editor and run, in order, once each:
+   [`migrations/001_label_scans.sql`](migrations/001_label_scans.sql),
+   [`migrations/002_raw_code_index.sql`](migrations/002_raw_code_index.sql), and
+   [`migrations/003_add_project.sql`](migrations/003_add_project.sql).
+   `js/supabase-client.js` already has that project's URL/anon key filled
+   in — nothing else to configure.
 2. **Run it** — any static file server works, e.g.:
    ```
    npx serve .
@@ -115,8 +140,8 @@ data needs to be locked down later, add sign-in (see `admin.html`'s
 magic-link flow in `harness-toolkit` for a pattern to copy) and change the
 policies in `migrations/001_label_scans.sql` to `to authenticated` only.
 
-The "Undo" button after a save, and the delete policy backing it, exist
-only to correct an obvious bad scan — there's no bulk-delete UI.
+The "Undo" button after a save, and "Delete" on an unpaired scan, are
+single-row cleanup tools — there's no bulk-delete UI.
 
 ## Files
 
@@ -127,4 +152,6 @@ js/supabase-client.js    Supabase project URL/anon key + client
 js/theme.js              dark/light mode toggle
 vendor/html5-qrcode.min.js   scanning library (Apache-2.0, vendored so it works offline/without a CDN)
 migrations/001_label_scans.sql   table + RLS policies
+migrations/002_raw_code_index.sql   index backing the duplicate check
+migrations/003_add_project.sql   project column, its check constraint, and a composite index
 ```
