@@ -510,17 +510,37 @@ function buildReportCsv(rows) {
  return lines.join("\r\n");
 }
 
-$("btn-download-report").addEventListener("click", async () => {
- const btn = $("btn-download-report");
- btn.disabled = true;
- const searchTerm = $("search-input").value.trim();
- let query = sbClient.from("label_scans").select("*").eq("project", currentProject).order("scanned_at", { ascending: false });
- if (searchTerm) {
-  const like = `%${searchTerm}%`;
-  query = query.or(`raw_code.ilike.${like},ebom.ilike.${like},traceability.ilike.${like}`);
+// Supabase's API caps rows per request (commonly 1000) regardless of how
+// many actually match -- a plain .select() silently truncates once a
+// project has scanned past that many rows. Paged with .range() instead,
+// looping until a page comes back short of a full page, so the report
+// always has everything, not just the first batch.
+const REPORT_PAGE_SIZE = 1000;
+
+// projectFilter null means every project -- used by "Download all projects".
+async function fetchAllReportRows(searchTerm, projectFilter) {
+ const rows = [];
+ for (let from = 0; ; from += REPORT_PAGE_SIZE) {
+  let query = sbClient.from("label_scans").select("*")
+   .order("scanned_at", { ascending: false }).range(from, from + REPORT_PAGE_SIZE - 1);
+  if (projectFilter) query = query.eq("project", projectFilter);
+  if (searchTerm) {
+   const like = `%${searchTerm}%`;
+   query = query.or(`raw_code.ilike.${like},ebom.ilike.${like},traceability.ilike.${like}`);
+  }
+  const { data, error } = await query;
+  if (error) return { data: null, error };
+  rows.push(...(data || []));
+  if (!data || data.length < REPORT_PAGE_SIZE) return { data: rows, error: null };
  }
- const { data, error } = await query;
- btn.disabled = false;
+}
+
+async function downloadReport(projectFilter, filenameTag) {
+ const buttons = [$("btn-download-report"), $("btn-download-report-all")];
+ buttons.forEach(b => b.disabled = true);
+ const searchTerm = $("search-input").value.trim();
+ const { data, error } = await fetchAllReportRows(searchTerm, projectFilter);
+ buttons.forEach(b => b.disabled = false);
  if (error) { alert("Couldn't build the report: " + error.message); return; }
 
  const csv = buildReportCsv(data || []);
@@ -528,12 +548,15 @@ $("btn-download-report").addEventListener("click", async () => {
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
  a.href = url;
- a.download = `label-scans-report-${currentProject}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+ a.download = `label-scans-report-${filenameTag}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
  document.body.appendChild(a);
  a.click();
  a.remove();
  URL.revokeObjectURL(url);
-});
+}
+
+$("btn-download-report").addEventListener("click", () => downloadReport(currentProject, currentProject));
+$("btn-download-report-all").addEventListener("click", () => downloadReport(null, "ALL"));
 
 // ---- Init ----
 resetPairSession();
