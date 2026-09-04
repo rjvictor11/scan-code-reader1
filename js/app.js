@@ -256,8 +256,15 @@ $("btn-rescan").addEventListener("click", () => {
  focusManualInput();
 });
 
+let isSaving = false;
+
 $("btn-save").addEventListener("click", async () => {
- if (!pendingDecoded) return;
+ // Checked and set synchronously, before anything else -- disabling the
+ // button alone isn't a reliable enough guard against two click events
+ // (e.g. a fast double-tap on a touchscreen) both slipping through before
+ // the first request finishes and the DOM attribute visibly takes effect.
+ if (!pendingDecoded || isSaving) return;
+ isSaving = true;
  const row = {
   correlation_id: pairCorrelationId,
   label_version: pairStep,
@@ -267,6 +274,7 @@ $("btn-save").addEventListener("click", async () => {
  };
  $("btn-save").disabled = true;
  const { data, error } = await sbClient.from("label_scans").insert(row).select().single();
+ isSaving = false;
  $("btn-save").disabled = false;
  if (error) {
   showCameraError(new Error("Save failed: " + error.message));
@@ -376,14 +384,28 @@ function renderUnpaired() {
   if (rows.length === 1) unpaired.push(rows[0]);
  }
  $("link-card").hidden = !unpaired.length;
- if (!unpaired.length) return;
+ if (!unpaired.length) {
+  $("unpaired-list").innerHTML = ""; // don't leave stale rows sitting in the DOM just because the card is hidden
+  return;
+ }
  $("unpaired-list").innerHTML = unpaired.map(row => `
   <div class="unpaired-row">
    <span class="badge badge-${row.label_version}">${row.label_version === "old" ? "Old" : "New"}</span>
    <span class="scan-raw">${esc(row.raw_code)}</span>
    <button class="ghost" data-link-id="${row.id}">Link&hellip;</button>
+   <button class="ghost" data-delete-id="${row.id}">Delete</button>
   </div>`).join("");
 }
+
+$("unpaired-list").addEventListener("click", async e => {
+ const btn = e.target.closest("button[data-delete-id]");
+ if (!btn) return;
+ const row = historyRows.find(r => String(r.id) === btn.dataset.deleteId);
+ if (!row || !confirm(`Delete this ${row.label_version} scan permanently?\n\n${row.raw_code}`)) return;
+ const { error } = await sbClient.from("label_scans").delete().eq("id", row.id);
+ if (error) { alert("Delete failed: " + error.message); return; }
+ loadHistory($("search-input").value.trim());
+});
 
 $("unpaired-list").addEventListener("click", e => {
  const btn = e.target.closest("button[data-link-id]");
