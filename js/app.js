@@ -17,10 +17,15 @@ const SCAN_FORMATS = [
 ];
 
 const PROJECT_KEY = "scan_reader_project";
-// The active project list now lives in the `projects` table (see
-// migrations/004_projects_table.sql), not a hardcoded array -- loadProjects()
-// fills this in for real before anything else runs.
-let currentProject = localStorage.getItem(PROJECT_KEY) || null;
+// Which projects are selectable is a hardcoded list here, on purpose --
+// not read from the database at runtime. Activating one of the reserved
+// codes (or adding a brand-new one) is a code change + push, never a
+// Supabase visit: the `projects` table (migrations/004_projects_table.sql)
+// already has every code below as a row, so the label_scans foreign key
+// is satisfied no matter which of them this list includes.
+// Currently reserved, not yet listed here: WL, JL, JT, WD.
+const PROJECTS = ["WS", "DT"];
+let currentProject = PROJECTS.includes(localStorage.getItem(PROJECT_KEY)) ? localStorage.getItem(PROJECT_KEY) : "WS";
 
 let pairStep = "old"; // "old" | "new" -- every scan session pairs an old label with its new one
 let pairCorrelationId = null;
@@ -49,36 +54,22 @@ function formatTimestamp(iso) {
 
 // ---- Project ----
 
-// Populates #project-select from the `projects` table (only rows with
-// active=true), rather than a hardcoded list -- so a project can be added
-// or hidden by editing that table directly in Supabase, no redeploy
-// needed. Must resolve before anything queries label_scans, since every
-// one of those queries is scoped by currentProject.
-//
-// Falls back to WS/DT if the table can't be reached at all (migration 004
-// not run yet, or just a network blip) rather than locking scanning up
-// entirely -- both codes are guaranteed to exist as real rows once 004
-// does run, so nothing about this fallback can violate the label_scans FK.
-const PROJECT_FALLBACK = ["WS", "DT"];
-
-async function loadProjects() {
- const { data, error } = await sbClient.from("projects").select("code").eq("active", true).order("code");
- const codes = (!error && data && data.length) ? data.map(p => p.code) : PROJECT_FALLBACK;
- if (error || !data || !data.length) {
-  console.warn("Couldn't load projects from the database, falling back to WS/DT:", error && error.message);
- }
- $("project-select").innerHTML = codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
- // Stored preference wins if it's still active; otherwise WS specifically
- // (not just whichever sorts first), falling back further only if WS
- // itself isn't active.
- currentProject = codes.includes(currentProject) ? currentProject : (codes.includes("WS") ? "WS" : codes[0]);
- $("project-select").value = currentProject;
-}
+$("project-select").innerHTML = PROJECTS.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+$("project-select").value = currentProject;
 
 $("project-select").addEventListener("change", () => {
  currentProject = $("project-select").value;
  localStorage.setItem(PROJECT_KEY, currentProject);
+ // A pending preview's Save button was enabled (or not) by a duplicate
+ // check scoped to the OLD project -- it's no longer valid for the new
+ // one, and an in-progress old/new pairing shouldn't be allowed to end up
+ // split across two different projects either. Discard both rather than
+ // let a stale, unverified scan sit there ready to Save.
+ pendingDecoded = null;
+ $("preview").hidden = true;
+ resetPairSession();
  loadHistory($("search-input").value.trim());
+ focusManualInput();
 });
 
 function getScanner() {
@@ -586,9 +577,6 @@ $("btn-download-report").addEventListener("click", () => downloadReport(currentP
 $("btn-download-report-all").addEventListener("click", () => downloadReport(null, "ALL"));
 
 // ---- Init ----
-(async () => {
- await loadProjects(); // currentProject must be resolved before any label_scans query runs
- resetPairSession();
- loadHistory();
- focusManualInput();
-})();
+resetPairSession();
+loadHistory();
+focusManualInput();

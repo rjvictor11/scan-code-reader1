@@ -74,21 +74,28 @@ whichever one is active: the Recent scans list, the duplicate check, the
 CSV report, and "Download report" all only see that project's rows — a
 code existing under two different projects is normal, not a duplicate.
 The choice is remembered in this browser (`localStorage`) so it doesn't
-need reselecting each visit. If nothing's stored yet (a fresh browser),
-it defaults to `WS` specifically, not just whichever project happens to
-sort first. **Download all** (next to Download report) is the one place
+need reselecting each visit; a fresh browser with nothing stored yet
+defaults to `WS`. **Download all** (next to Download report) is the one place
 that ignores the selector on purpose — it exports every project combined
 into a single file.
 
-The list itself lives in a `projects` table
-([`migrations/004_projects_table.sql`](migrations/004_projects_table.sql)),
-not hardcoded in the app — only rows with `active = true` show up in the
-dropdown. **To add, rename, activate, or deactivate a project, edit that
-table directly in Supabase's Table Editor — no code change or redeploy
-needed.** That migration seeds `WS` and `DT` active, plus `WL`, `JL`, `JT`,
-and `WD` reserved (`active = false`, sitting in the database but not yet
-selectable) — flip a reserved one's `active` column to `true` whenever
-it's actually needed.
+The selectable list is the `PROJECTS` array in `js/app.js`, matched by the
+`<option>`s in `index.html` — hardcoded on purpose, not read from the
+database. Activating a project is a code change + push, never a Supabase
+visit: [`migrations/004_projects_table.sql`](migrations/004_projects_table.sql)
+already seeded `WS`, `DT`, `WL`, `JL`, `JT`, and `WD` as rows in a
+`projects` table, so `label_scans.project`'s foreign key already accepts
+any of the six — only which of them `PROJECTS`/the dropdown currently
+lists controls what's actually selectable. To add one already reserved
+there (`WL`, `JL`, `JT`, `WD`) or a genuinely new code, add it to both
+`PROJECTS` in `js/app.js` and the `<option>` list in `index.html`; a
+brand-new code also needs a row inserted into `projects` first (one line
+of SQL, run once) so the foreign key accepts it.
+
+Switching the selector mid-scan discards whatever's in the preview and
+resets the old/new pairing in progress — a pending Save was only checked
+for duplicates against the project you were on, and an old/new pair
+can't have its two halves end up filed under different projects.
 
 ## Using a handheld barcode scanner (instead of, or with, a phone camera)
 
@@ -156,10 +163,10 @@ policies in `migrations/001_label_scans.sql` to `to authenticated` only.
 The "Undo" button after a save, and "Delete" on an unpaired scan, are
 single-row cleanup tools — there's no bulk-delete UI.
 
-`projects` is the one table the app can only read, never write — adding,
-renaming, activating, or deactivating a project is a deliberate action
-taken directly in Supabase, not something the anon key can do from the
-app itself.
+The app's anon key never reads or writes `projects` at all — that table
+exists purely to satisfy `label_scans`' foreign key (see Projects above).
+Activating or adding a project is a code change in this repo, not
+something done through the app's own UI or the anon key.
 
 ## Files
 
@@ -172,5 +179,5 @@ vendor/html5-qrcode.min.js   scanning library (Apache-2.0, vendored so it works 
 migrations/001_label_scans.sql   table + RLS policies
 migrations/002_raw_code_index.sql   index backing the duplicate check
 migrations/003_add_project.sql   project column and a composite index (its check constraint is later replaced by 004's foreign key)
-migrations/004_projects_table.sql   projects table (the actual source of the dropdown), seeded active/reserved rows, FK from label_scans
+migrations/004_projects_table.sql   projects table so label_scans' foreign key accepts WS/DT/WL/JL/JT/WD -- the app's own PROJECTS list (js/app.js) is what actually controls the dropdown
 ```
